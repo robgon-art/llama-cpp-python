@@ -761,8 +761,9 @@ class Llama:
                 else:
                     break
             if longest_prefix > 0:
-                if self.verbose:
-                    print("Llama.generate: prefix-match hit", file=sys.stderr)
+                # disable this
+                # if self.verbose:
+                #     print("Llama.generate: prefix-match hit", file=sys.stderr)
                 reset = False
                 tokens = tokens[longest_prefix:]
                 self.n_tokens = longest_prefix
