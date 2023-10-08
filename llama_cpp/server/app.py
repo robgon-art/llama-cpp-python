@@ -1,5 +1,7 @@
+import sys
 import json
 import multiprocessing
+import time
 from re import compile, Match, Pattern
 from threading import Lock
 from functools import partial
@@ -26,6 +28,7 @@ import numpy as np
 import numpy.typing as npt
 
 
+# Disable warning for model and model_alias settings
 BaseSettings.model_config['protected_namespaces'] = ()
 
 
@@ -57,14 +60,10 @@ class Settings(BaseSettings):
         description="Split layers across multiple GPUs in proportion.",
     )
     rope_freq_base: float = Field(
-        default=10000, ge=1, description="RoPE base frequency"
+        default=0.0, description="RoPE base frequency"
     )
     rope_freq_scale: float = Field(
-        default=1.0, description="RoPE frequency scaling factor"
-    )
-    low_vram: bool = Field(
-        default=False,
-        description="Whether to use less VRAM. This will reduce performance.",
+        default=0.0, description="RoPE frequency scaling factor"
     )
     mul_mat_q: bool = Field(
         default=True, description="if true, use experimental mul_mat_q kernels"
@@ -104,6 +103,10 @@ class Settings(BaseSettings):
     numa: bool = Field(
         default=False,
         description="Enable NUMA support.",
+    )
+    chat_format: str = Field(
+        default="llama-2",
+        description="Chat format to use.",
     )
     cache: bool = Field(
         default=False,
@@ -239,7 +242,7 @@ class RouteErrorHandler(APIRoute):
         ] = None,
     ) -> Tuple[int, ErrorResponse]:
         """Wraps error message in OpenAI style error response"""
-
+        print(f"Exception: {str(error)}", file=sys.stderr)
         if body is not None and isinstance(
             body,
             (
@@ -271,7 +274,11 @@ class RouteErrorHandler(APIRoute):
 
         async def custom_route_handler(request: Request) -> Response:
             try:
-                return await original_route_handler(request)
+                start_sec = time.perf_counter()
+                response = await original_route_handler(request)
+                elapsed_time_ms = int((time.perf_counter() - start_sec) * 1000)
+                response.headers["openai-processing-ms"] = f"{elapsed_time_ms}"
+                return response
             except Exception as exc:
                 json_body = await request.json()
                 try:
@@ -344,7 +351,6 @@ def create_app(settings: Optional[Settings] = None):
         tensor_split=settings.tensor_split,
         rope_freq_base=settings.rope_freq_base,
         rope_freq_scale=settings.rope_freq_scale,
-        low_vram=settings.low_vram,
         mul_mat_q=settings.mul_mat_q,
         f16_kv=settings.f16_kv,
         logits_all=settings.logits_all,
@@ -356,6 +362,8 @@ def create_app(settings: Optional[Settings] = None):
         last_n_tokens_size=settings.last_n_tokens_size,
         lora_base=settings.lora_base,
         lora_path=settings.lora_path,
+        numa=settings.numa,
+        chat_format=settings.chat_format,
         verbose=settings.verbose,
     )
     if settings.cache:
